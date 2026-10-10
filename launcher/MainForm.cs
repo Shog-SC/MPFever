@@ -766,9 +766,14 @@ namespace MPFever
             lock (clocks) times = clocks.Values.Select(c => c.T).Distinct().ToList();
             lock (players) n = players.Count;
             if (n < 1) { Log.W(T("Aucun jeu prêt.", "No game is ready.")); return; }
-            if (times.Count > 1) { Log.W(T("Les jeux ne sont pas au même temps (", "The games are not at the same time (") + string.Join(", ", times) + T(") : chargez exactement la même sauvegarde partout.", "): load exactly the same savegame everywhere.")); return; }
-            lock (sessionGate) { started = true; speed = 0; pauseAt = times.Count == 1 ? times[0] : (long?)null; }
-            Log.W(T($"=== Partie démarrée avec {n} jeu(x) au temps {times.FirstOrDefault()} : vérification initiale... ===", $"=== Game started with {n} game(s) at time {times.FirstOrDefault()}: initial check... ==="));
+            // Right after loading, a game sometimes runs a few steps before it stops (seen: 17836800 and 17837600 for the same
+            // savegame). Nobody has acted yet and the simulation is deterministic, so a small gap is closed by pausing everyone
+            // at the latest time: the games behind run up to it. A larger gap still means different savegames.
+            const long MaxLoadGap = 10 * Step;
+            if (times.Count > 1 && times.Max() - times.Min() > MaxLoadGap) { Log.W(T("Les jeux ne sont pas au même temps (", "The games are not at the same time (") + string.Join(", ", times) + T(") : chargez exactement la même sauvegarde partout.", "): load exactly the same savegame everywhere.")); return; }
+            if (times.Count > 1) Log.W(T("Petit écart au chargement (", "Small gap after loading (") + string.Join(", ", times) + T(") : les jeux en retard rattrapent ", "): the games behind catch up to ") + times.Max());
+            lock (sessionGate) { started = true; speed = 0; pauseAt = times.Max(); }
+            Log.W(T($"=== Partie démarrée avec {n} jeu(x) au temps {times.Max()} : vérification initiale... ===", $"=== Game started with {n} game(s) at time {times.Max()}: initial check... ==="));
             BroadcastSession();
             // every game just loaded the same savegame: a part already different now is a local measure
             postResyncHashN = hashN + 1;
